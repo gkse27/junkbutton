@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Report Junk</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script>
+        Office.onReady(function(info) {
+            if (info.host === Office.HostType.Outlook) {
+                document.getElementById("reportJunkBtn").onclick = reportJunk;
+            }
+        });
+
+        function reportJunk() {
+            const item = Office.context.mailbox.item;
+
+            // Move the email to Junk folder
+            item.move(Office.MailboxEnums.FolderType.Junk, function(result) {
+                if (result.error) {
+                    console.error(result.error);
+                } else {
+                    console.log("Email moved to Junk folder");
+
+                    // Notify IT by sending a copy of the email or details
+                    Office.context.mailbox.item.notificationMessages.addAsync("junkReport", {
+                        type: "informationalMessage",
+                        message: "Email moved to Junk and IT notified.",
+                        icon: "icon16",
+                        persistent: true
+                    });
+
+                    // Optionally, send an email to IT or log the event
+                    Office.context.mailbox.makeEwsRequestAsync(
+                        generateEwsRequest(item),
+                        function(asyncResult) {
+                            if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+                                console.error("Error in sending notification: " + asyncResult.error.message);
+                            } else {
+                                console.log("Notification sent to IT.");
+                            }
+                        }
+                    );
+                }
+            });
+        }
+
+        function generateEwsRequest(item) {
+            const ewsId = item.itemId;
+            const subject = "Junk Email Report: " + item.subject;
+            const body = "The following email was reported as Junk:\n\n" +
+                "Subject: " + item.subject + "\n" +
+                "From: " + item.from.emailAddress + "\n" +
+                "Received: " + item.dateTimeCreated;
+
+            return `<?xml version="1.0" encoding="utf-8"?>
+                    <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+                                   xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+                      <soap:Body>
+                        <CreateItem xmlns="http://schemas.microsoft.com/exchange/services/2006/messages"
+                                    MessageDisposition="SendAndSaveCopy">
+                          <SavedItemFolderId>
+                            <t:DistinguishedFolderId Id="sentitems"/>
+                          </SavedItemFolderId>
+                          <Items>
+                            <t:Message>
+                              <t:Subject>${subject}</t:Subject>
+                              <t:Body BodyType="Text">${body}</t:Body>
+                              <t:ToRecipients>
+                                <t:Mailbox>
+                                  <t:EmailAddress>it@yourcompany.com</t:EmailAddress>
+                                </t:Mailbox>
+                              </t:ToRecipients>
+                            </t:Message>
+                          </Items>
+                        </CreateItem>
+                      </soap:Body>
+                    </soap:Envelope>`;
+        }
+    </script>
+</head>
+<body>
+    <button id="reportJunkBtn">Report Junk</button>
+</body>
+</html>
