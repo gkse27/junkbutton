@@ -13,6 +13,12 @@
         function reportJunk() {
             const item = Office.context.mailbox.item;
 
+            // Confirm if the user really wants to move the email to Junk
+            const userConfirmed = confirm("Are you sure you want to move this email to the Junk folder and report it to Microsoft?");
+            if (!userConfirmed) {
+                return; // If the user cancels, do nothing
+            }
+
             // Move the email to Junk folder
             item.move(Office.MailboxEnums.FolderType.Junk, function(result) {
                 if (result.error) {
@@ -20,60 +26,57 @@
                 } else {
                     console.log("Email moved to Junk folder");
 
-                    // Notify IT by sending a copy of the email or details
+                    // Report the message to Microsoft
+                    reportToMicrosoft(item);
+
+                    // Notify the user
                     Office.context.mailbox.item.notificationMessages.addAsync("junkReport", {
                         type: "informationalMessage",
-                        message: "Email moved to Junk and IT notified.",
+                        message: "Email moved to Junk folder and reported to Microsoft.",
                         icon: "icon16",
                         persistent: true
                     });
-
-                    // Optionally, send an email to IT or log the event
-                    Office.context.mailbox.makeEwsRequestAsync(
-                        generateEwsRequest(item),
-                        function(asyncResult) {
-                            if (asyncResult.status === Office.AsyncResultStatus.Failed) {
-                                console.error("Error in sending notification: " + asyncResult.error.message);
-                            } else {
-                                console.log("Notification sent to IT.");
-                            }
-                        }
-                    );
                 }
             });
         }
 
-        function generateEwsRequest(item) {
-            const ewsId = item.itemId;
-            const subject = "Junk Email Report: " + item.subject;
-            const body = "The following email was reported as Junk:\n\n" +
-                "Subject: " + item.subject + "\n" +
-                "From: " + item.from.emailAddress + "\n" +
-                "Received: " + item.dateTimeCreated;
+        function reportToMicrosoft(item) {
+            // Get the item's Internet Message ID
+            const internetMessageId = item.internetMessageId;
 
-            return `<?xml version="1.0" encoding="utf-8"?>
-                    <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-                                   xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
-                      <soap:Body>
-                        <CreateItem xmlns="http://schemas.microsoft.com/exchange/services/2006/messages"
-                                    MessageDisposition="SendAndSaveCopy">
-                          <SavedItemFolderId>
-                            <t:DistinguishedFolderId Id="sentitems"/>
-                          </SavedItemFolderId>
-                          <Items>
-                            <t:Message>
-                              <t:Subject>${subject}</t:Subject>
-                              <t:Body BodyType="Text">${body}</t:Body>
-                              <t:ToRecipients>
-                                <t:Mailbox>
-                                  <t:EmailAddress>it@yourcompany.com</t:EmailAddress>
-                                </t:Mailbox>
-                              </t:ToRecipients>
-                            </t:Message>
-                          </Items>
-                        </CreateItem>
-                      </soap:Body>
-                    </soap:Envelope>`;
+            // Call the Reporting Web Service
+            fetch('https://outlook.office365.com/ecp/api/reportJunk', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + Office.context.mailbox.getCallbackTokenAsync({
+                        isRest: true
+                    }, function (result) {
+                        if (result.status === Office.AsyncResultStatus.Succeeded) {
+                            return result.value;
+                        } else {
+                            console.error("Failed to get token");
+                            return null;
+                        }
+                    })
+                },
+                body: JSON.stringify({
+                    messageId: internetMessageId,
+                    type: "junk" // or "phish" for phishing
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to report to Microsoft');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Reported to Microsoft:', data);
+            })
+            .catch(error => {
+                console.error('Error reporting to Microsoft:', error);
+            });
         }
     </script>
 </head>
